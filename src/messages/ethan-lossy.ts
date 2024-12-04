@@ -1,62 +1,27 @@
-import { fft, ifft } from 'fft-js';
+import { Graph, Edge } from '../graph/graph';
 
-export interface CompressedMessage {
-  sender: string;
-  receiver: string;
-  metadata: {
-    originalLength: number;
-    lossiness: number;
-  };
-  messageBody: string;
+// Basic simulation of lossy compression on strings
+export function compressMessage(message: string, retainRatio: number): string {
+  const originalLength = message.length;
+  // A simple "lossy compression" for demonstration (truncating part of the message)
+  const maxLength = Math.floor(originalLength * retainRatio);
+  const compressedMessage = message.slice(0, maxLength);
+  
+  // Log the message before and after compression
+  console.log(`Original Message: ${message}`);
+  console.log(`Compressed Message (retainRatio: ${retainRatio}): ${compressedMessage}`);
+
+  return compressedMessage;
 }
 
-/**
- * Compresses a message using lossy FFT-based compression.
- * @param sender - The sender's ID.
- * @param receiver - The receiver's ID.
- * @param message - The message string to be compressed.
- * @param lossiness - A number between 0 and 1 specifying how much detail to discard.
- * @returns A compressed message object.
- */
-export function lossyCompress(
-  sender: string,
-  receiver: string,
-  message: string,
-  lossiness: number
-): CompressedMessage {
-  if (lossiness < 0 || lossiness > 1) {
-    throw new Error("Lossiness must be between 0 and 1.");
-  }
-
-  const originalLength = message.length;
-
-  // Convert message to ASCII array
-  const data = Array.from(message).map((char) => char.charCodeAt(0));
-
-  // Perform FFT
-  const transformed = fft(data);
-
-  // Apply lossy compression by discarding high frequencies
-  const compressed = transformed.map((value: any, index: number) => {
-    const threshold = Math.floor(lossiness * transformed.length);
-    return index >= threshold ? [0, 0] : value;
-  });
-
-  // Perform IFFT to reconstruct the compressed data
-  const reconstructed = ifft(compressed).map((val: [number, number]) => Math.round(val[0]));
-
-  // Convert reconstructed data back to a string
-  const compressedMessage = reconstructed
-    .map((num: number) => String.fromCharCode(num))
-    .join("");
+export function compressGraphData(graph: Graph, retainRatio: number): Graph {
+  const compressedEdges = graph.edges.map((edge: Edge) => ({
+    ...edge,
+    message: compressMessage(edge.message, retainRatio),
+  }));
 
   return {
-    sender,
-    receiver,
-    metadata: {
-      originalLength,
-      lossiness,
-    },
-    messageBody: compressedMessage,
+    ...graph,
+    edges: compressedEdges,
   };
 }
