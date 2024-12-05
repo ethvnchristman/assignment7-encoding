@@ -1,6 +1,5 @@
-import { Graph } from 'graph.js';
+import { Graph, Node, Edge } from '../graph/graph';
 
-// Types and interfaces
 interface PublicKey {
   e: bigint;
   n: bigint;
@@ -11,94 +10,112 @@ interface PrivateKey {
   n: bigint;
 }
 
-interface Person {
+interface NodeKeys {
   id: string;
   publicKey: PublicKey;
   privateKey: PrivateKey;
-  connections: Set<string>;
 }
 
-interface Message {
-  senderId: string;
-  receiverId: string;
+interface SecureMessage {
+  from: string;
+  to: string;
   metadata: Record<string, any>;
-  body: string;
+  content: string;
 }
 
-interface EncryptedMessage extends Message {
+interface EncryptedMessage extends SecureMessage {
   metadata: {
-    encryptedBody: bigint[];
+    encryptedContent: bigint[];
   };
 }
 
 class SecureCommunicationNetwork {
-  private people: Map<string, Person>;
   private graph: Graph;
+  private nodeKeys: Map<string, NodeKeys>;
 
-  constructor() {
-    this.people = new Map();
-    this.graph = new Graph();
+  constructor(graph: Graph) {
+    this.graph = graph;
+    this.nodeKeys = new Map();
+    
+    // Initialize keys for all nodes
+    this.graph.nodes.forEach(node => {
+      const keys = this.generateRSAKeys();
+      this.nodeKeys.set(node.id, {
+        id: node.id,
+        publicKey: keys.publicKey,
+        privateKey: keys.privateKey
+      });
+    });
   }
 
-  public addPerson(personId: string): void {
-    const keys = this.generateRSAKeys();
-    const person: Person = {
-      id: personId,
-      publicKey: keys.publicKey,
-      privateKey: keys.privateKey,
-      connections: new Set(),
-    };
-    this.people.set(personId, person);
-    this.graph.addNode(personId);
-  }
-
-  public addConnection(person1Id: string, person2Id: string): void {
-    const person1 = this.people.get(person1Id);
-    const person2 = this.people.get(person2Id);
-
-    if (!person1 || !person2) {
-      throw new Error('Both people must exist in the network');
+  public findPath(fromId: string, toId: string): string[] {
+    const visited = new Set<string>();
+    const queue: { id: string; path: string[] }[] = [{ id: fromId, path: [fromId] }];
+    
+    while (queue.length > 0) {
+      const { id, path } = queue.shift()!;
+      
+      if (id === toId) {
+        return path;
+      }
+      
+      if (!visited.has(id)) {
+        visited.add(id);
+        const neighbors = this.getNeighborIds(id);
+        
+        for (const neighborId of neighbors) {
+          if (!visited.has(neighborId)) {
+            queue.push({
+              id: neighborId,
+              path: [...path, neighborId]
+            });
+          }
+        }
+      }
     }
-
-    person1.connections.add(person2Id);
-    person2.connections.add(person1Id);
-    this.graph.addEdge(person1Id, person2Id);
+    
+    return [];
   }
 
-  public sendMessage(message: Message): EncryptedMessage | null {
-    const sender = this.people.get(message.senderId);
-    const receiver = this.people.get(message.receiverId);
+  private getNeighborIds(nodeId: string): string[] {
+    return this.graph.edges
+      .filter(edge => edge.from === nodeId)
+      .map(edge => edge.to);
+  }
 
-    if (!sender || !receiver) {
+  public sendMessage(message: SecureMessage): EncryptedMessage | null {
+    const senderKeys = this.nodeKeys.get(message.from);
+    const receiverKeys = this.nodeKeys.get(message.to);
+
+    if (!senderKeys || !receiverKeys) {
       return null;
     }
 
-    try {
-      // Check if there's a path between sender and receiver
-      this.graph.shortestPath(message.senderId, message.receiverId);
-    } catch {
+    // Verify path exists
+    const path = this.findPath(message.from, message.to);
+    if (path.length === 0) {
       return null;
     }
 
     // Encrypt message using receiver's public key
-    const encryptedBody = this.encrypt(message.body, receiver.publicKey);
+    const encryptedContent = this.encrypt(message.content, receiverKeys.publicKey);
     
     return {
       ...message,
       metadata: {
-        encryptedBody,
-      },
+        encryptedContent
+      }
     };
   }
 
   public receiveMessage(message: EncryptedMessage): string | null {
-    const receiver = this.people.get(message.receiverId);
+    const receiverKeys = this.nodeKeys.get(message.to);
 
-    if (!receiver || !message.metadata.encryptedBody) {
+    if (!receiverKeys || !message.metadata.encryptedContent) {
       return null;
     }
 
-    return this.decrypt(message.metadata.encryptedBody, receiver.privateKey);
+    return this.decrypt(message.metadata.encryptedContent, receiverKeys.privateKey);
   }
 
   private generateRSAKeys(keySize: number = 8): { publicKey: PublicKey; privateKey: PrivateKey } {
@@ -121,12 +138,10 @@ class SecureCommunicationNetwork {
     const q = BigInt(primes[Math.floor(Math.random() * primes.length)]);
     
     const n = p * q;
-    const phi = (p - 1n) * (q - 1n);
+    const phi = (p - BigInt(1)) * (q - BigInt(1));
     
-    // Choose public exponent e
-    let e = 65537n;
+    let e = BigInt(65537);
     
-    // Calculate private exponent d using extended Euclidean algorithm
     const modInverse = (a: bigint, m: bigint): bigint => {
       const extendedGCD = (a: bigint, b: bigint): [bigint, bigint, bigint] => {
         if (b === 0n) return [a, 1n, 0n];
@@ -142,7 +157,7 @@ class SecureCommunicationNetwork {
 
     return {
       publicKey: { e, n },
-      privateKey: { d, n },
+      privateKey: { d, n }
     };
   }
 
@@ -171,34 +186,37 @@ class SecureCommunicationNetwork {
     }
     return result;
   }
-}
 
-// Example usage
-function demoSecureCommunication() {
-  const network = new SecureCommunicationNetwork();
+  // Helper method to demonstrate the network
+  public demonstrateSecureCommunication(fromId: string, toId: string, message: string): void {
+    console.log(`Attempting to send message from ${fromId} to ${toId}`);
+    
+    const secureMessage: SecureMessage = {
+      from: fromId,
+      to: toId,
+      metadata: {},
+      content: message
+    };
 
-  // Add people to the network
-  network.addPerson('Alice');
-  network.addPerson('Bob');
-  network.addPerson('Charlie');
-
-  // Create connections
-  network.addConnection('Alice', 'Bob');
-  network.addConnection('Bob', 'Charlie');
-
-  // Create and send a message
-  const message: Message = {
-    senderId: 'Alice',
-    receiverId: 'Charlie',
-    metadata: {},
-    body: 'Hello, this is a secret message!',
-  };
-
-  const encryptedMessage = network.sendMessage(message);
-  if (encryptedMessage) {
-    const decryptedMessage = network.receiveMessage(encryptedMessage);
-    console.log('Decrypted message:', decryptedMessage);
+    const encrypted = this.sendMessage(secureMessage);
+    if (encrypted) {
+      console.log('Message encrypted successfully');
+      const decrypted = this.receiveMessage(encrypted);
+      if (decrypted) {
+        console.log('Message decrypted successfully');
+        console.log('Original message:', message);
+        console.log('Decrypted message:', decrypted);
+      }
+    }
   }
 }
 
-export { SecureCommunicationNetwork, type Message, type EncryptedMessage };
+// Example usage with the provided graph structure
+function demo(graph: Graph) {
+  const network = new SecureCommunicationNetwork(graph);
+  
+  // Test message from Bill (1) to Annie (4)
+  network.demonstrateSecureCommunication('1', '4', 'Hello Annie, this is a secure message from Bill!');
+}
+
+export { SecureCommunicationNetwork, type SecureMessage, type EncryptedMessage };
