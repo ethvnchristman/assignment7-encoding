@@ -1,6 +1,6 @@
  "use strict";
 
-import { Graph } from 'graph-data-structure';
+import { Graph } from 'graph.js';
 
 // Types and interfaces
 interface PublicKey {
