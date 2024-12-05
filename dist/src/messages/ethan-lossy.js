@@ -14,6 +14,12 @@ function compressMessage(message, retainRatio) {
     return compressedMessage;
 }
 function compressGraphData(graph, retainRatio) {
-    const compressedEdges = graph.edges.map((edge) => (Object.assign(Object.assign({}, edge), { message: compressMessage(edge.message, retainRatio) })));
-    return Object.assign(Object.assign({}, graph), { edges: compressedEdges });
+    const compressedEdges = graph.edges.map((edge) => ({
+        ...edge,
+        message: compressMessage(edge.message, retainRatio),
+    }));
+    return {
+        ...graph,
+        edges: compressedEdges,
+    };
 }
